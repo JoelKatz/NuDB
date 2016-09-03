@@ -16,8 +16,9 @@ char const* rocksdb_build_git_sha="Benchmark Dummy Sha";
 char const* rocksdb_build_compile_date="Benchmark Dummy Compile Date";
 #endif
 
+#include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
-#include <boost/system/system_error.hpp>
+#include <boost/system/system_error.hpp> // should use nudb::error
 
 #include <array>
 #include <chrono>
@@ -298,6 +299,8 @@ get_opt(po::variables_map const& vm, std::string const& key, T const& default_va
     return vm.count(key) ? vm[key].as<T>() : default_value;
 }
 
+#if 0
+
 } // test
 } // nudb
 
@@ -432,3 +435,183 @@ main(int argc, char** argv)
         }
     }
 }
+#else
+
+template<class Hasher>
+class bench_tool
+{
+    int ac_ = 0;
+    char const* const* av_ = nullptr;
+    boost::program_options::options_description desc_;
+
+public:
+    bench_tool()
+        : desc_("Options")
+    {
+        namespace po = boost::program_options;
+        desc_.add_options()
+           ("dat,d",       po::value<std::string>(),
+                            "Path to data file.")
+           ("key,k",       po::value<std::string>(),
+                            "Path to key file.")
+           ("log,l",       po::value<std::string>(),
+                            "Path to log file.")
+           ("count,n",     po::value<std::uint64_t>(),
+                            "The number of items in the data file.")
+           ("command",     "Command to run.")
+            ;
+    }
+
+    std::string
+    progname() const
+    {
+        using namespace boost::filesystem;
+        return path{av_[0]}.stem().string();
+    }
+
+    std::string
+    filename(std::string const& s)
+    {
+        using namespace boost::filesystem;
+        return path{s}.filename().string();
+    }
+
+    int
+    error(std::string const& why)
+    {
+        std::cerr <<
+            progname() << ": " << why << ".\n"
+            "Use '" << progname() << " help' for usage.\n";
+        return EXIT_FAILURE;
+    };
+
+    void
+    help()
+    {
+        std::cout <<
+            "usage: " << progname() << " <command> [file...] <options>\n";
+        std::cout <<
+            "\n"
+            "Commands:\n"
+            "\n"
+            "    help\n"
+            "\n"
+            "        Print this help information.\n"
+            "\n"
+            "    create <dat-path | root-path> [<key-path> [<log-path>]]\n"
+            "\n"
+            "        Show metadata and header information for database files.\n"
+            "\n"
+            "    recover <dat-path> <key-path> <log-path>\n"
+            "\n"
+            "        Perform a database recovery. A recovery is necessary if a log\n"
+            "        file is present.  Running commands on an unrecovered database\n"
+            "        may result in lost or corrupted data.\n"
+            "\n"
+            "    rekey <dat-path] <key-path> <log-path> --count=<items> --buffer=<bytes>\n"
+            "\n"
+            "        Generate the key file for a data file.  The buffer  option is\n"
+            "        required,  larger  buffers process faster.  A buffer equal to\n"
+            "        the size of the key file  processes the fastest. This command\n"
+            "        must be  passed  the count of  items in the data file,  which\n"
+            "        can be calculated with the 'visit' command.\n"
+            "\n"
+            "        If the rekey is aborted before completion,  the database must\n"
+            "        be subsequently restored by running the 'recover' command.\n"
+            "\n"
+            "    verify <dat-path> <key-path> [--buffer=<bytes>]\n"
+            "\n"
+            "        Verify  the  integrity of a  database.  The buffer  option is\n"
+            "        optional, if omitted a slow  algorithm is used. When a buffer\n"
+            "        size  is  provided,  a  fast  algorithm is used  with  larger\n"
+            "        buffers  resulting in bigger speedups.  A buffer equal to the\n"
+            "        size of the key file provides the fastest speedup.\n"
+            "\n"
+            "    visit <dat-path>\n"
+            "\n"
+            "        Iterate a data file and show information, including the count\n"
+            "        of items in the file and a histogram of their log base2 size.\n"
+            "\n"
+            "Notes:\n"
+            "\n"
+            "    Paths may be full or relative, and should include the extension.\n"
+            "    The recover  algorithm  should be  invoked  before  running  any\n"
+            "    operation which can modify the database.\n"
+            "\n"
+            ;
+        desc_.print(std::cout);
+    };
+
+    int
+    operator()(int ac, char const* const* av)
+    {
+        namespace po = boost::program_options;
+
+        ac_ = ac;
+        av_ = av;
+
+        try
+        {
+            po::positional_options_description pod;
+            pod.add("command", 1);
+            pod.add("dat", 1);
+            pod.add("key", 1);
+            pod.add("log", 1);
+
+            po::variables_map vm;
+            po::store(po::command_line_parser(ac, av)
+                .options(desc_)
+                .positional(pod)
+                .run()
+                ,vm);
+            po::notify(vm);
+
+            std::string cmd;
+
+            if(vm.count("command"))
+                cmd = vm["command"].as<std::string>();
+
+            if(cmd == "help")
+            {
+                help();
+                return EXIT_SUCCESS;
+            }
+
+            if(cmd == "info")
+                return do_info(vm);
+
+            if(cmd == "recover")
+                return do_recover(vm);
+
+            if(cmd == "rekey")
+                return do_rekey(vm);
+
+            if(cmd == "verify")
+                return do_verify(vm);
+
+            if(cmd == "visit")
+                return do_visit(vm);
+
+            return error("Unknown command '" + cmd + "'");
+        }
+        catch(std::exception const& e)
+        {
+            return error(e.what());
+        }
+    }
+};
+
+} // test
+} // nudb
+
+int
+main(int ac, char** av)
+{
+    nudb::test::bench_tool<nudb::xxhasher> t;
+    auto const rv = t(ac, av);
+    std::cout.flush();
+    basic_seconds_clock_main_hook();
+    return rv;
+}
+
+#endif
