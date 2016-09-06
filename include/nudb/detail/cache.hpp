@@ -17,7 +17,6 @@
 #include <utility>
 #include <vector>
 #include <unordered_map>
-#include <boost/container/flat_map.hpp>
 
 namespace nudb {
 namespace detail {
@@ -32,19 +31,8 @@ public:
     using value_type = std::pair<nbuck_t, bucket>;
 
 private:
-    enum
-    {
-        // The arena's alloc size will be this
-        // multiple of the block size.
-        factor = 64
-    };
-
-#if 0
-    using map_type = std::unordered_map<
-        nbuck_t, void*>;
-#else
-    using map_type = boost::container::flat_map<nbuck_t, void*>;
-#endif
+    using map_type =
+        std::unordered_map<nbuck_t, void*>;
 
     struct transform
     {
@@ -92,6 +80,12 @@ public:
 
     explicit
     cache_t(nsize_t key_size, nsize_t block_size);
+
+    std::size_t
+    size() const
+    {
+        return map_.size();
+    }
 
     iterator
     begin()
@@ -142,7 +136,6 @@ cache_t<_>::
 cache_t()
     : key_size_(0)
     , block_size_(0)
-    , arena_(32) // arbitrary small number
 {
 }
 
@@ -161,7 +154,6 @@ cache_t<_>::
 cache_t(nsize_t key_size, nsize_t block_size)
     : key_size_(key_size)
     , block_size_(block_size)
-    , arena_(block_size * factor)
 {
 }
 

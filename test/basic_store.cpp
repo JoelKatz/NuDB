@@ -103,6 +103,7 @@ public:
             if(! BEAST_EXPECTS(! ec, ec.message()))
                 return;
         }
+#if 0
         // Fetch
         for(std::size_t n = 0; n < N; ++n)
         {
@@ -166,6 +167,9 @@ public:
             std::this_thread::sleep_for(
                 std::chrono::milliseconds{2000});
         }
+#endif
+std::this_thread::sleep_for(
+    std::chrono::seconds{5});
         ts.close(ec);
         if(! BEAST_EXPECTS(! ec, ec.message()))
             return;
@@ -198,14 +202,18 @@ public:
     void
     run() override
     {
+#if 0
         test_members();
         test_insert_fetch();
+#else
+        // bulk-insert performance test
+        do_insert_fetch(10000000, 8, 4096, 0.5f, false);
+#endif
     }
 };
 
 BEAST_DEFINE_TESTSUITE(basic_store, test, nudb);
 
 } // test
-
 } // nudb
 

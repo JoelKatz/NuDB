@@ -56,11 +56,8 @@ private:
     using clock_type =
         std::chrono::steady_clock;
 
-    using shared_lock_type =
-        boost::shared_lock<boost::shared_mutex>;
-
-    using unique_lock_type =
-        boost::unique_lock<boost::shared_mutex>;
+    using time_point =
+        typename clock_type::time_point;
 
     struct state
     {
@@ -77,8 +74,9 @@ private:
         detail::cache c1;
         detail::key_file_header kh;
 
-        // pool commit high water mark
-        std::size_t pool_thresh = 1;
+        time_point when = clock_type::now();
+        
+        std::size_t rate = 0;
 
         state(state const&) = delete;
         state& operator=(state const&) = delete;
@@ -429,7 +427,7 @@ private:
 
     bool
     exists(detail::nhash_t h, void const* key,
-        shared_lock_type* lock, detail::bucket b, error_code& ec);
+        detail::shared_lock_type* lock, detail::bucket b, error_code& ec);
 
     void
     split(detail::bucket& b1, detail::bucket& b2,
@@ -442,7 +440,7 @@ private:
         detail::cache& c0, void* buf, error_code& ec);
 
     void
-    commit(error_code& ec);
+    commit(detail::unique_lock_type& m, error_code& ec);
 
     void
     run();

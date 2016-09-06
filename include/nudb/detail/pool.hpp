@@ -11,7 +11,9 @@
 #include <nudb/detail/arena.hpp>
 #include <nudb/detail/bucket.hpp>
 #include <nudb/detail/format.hpp>
+#include <nudb/detail/mutex.hpp>
 #include <boost/assert.hpp>
+#include <boost/thread/lock_types.hpp>
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -48,7 +50,8 @@ public:
 
     pool_t(pool_t&& other);
 
-    pool_t(nsize_t key_size, std::size_t alloc_size);
+    explicit
+    pool_t(nsize_t key_size);
 
     iterator
     begin()
@@ -87,6 +90,11 @@ public:
 
     void
     shrink_to_fit();
+
+    // Called every so often
+    void
+    periodic_activity(
+        detail::unique_lock_type& m);
 
     iterator
     find(void const* key);
@@ -166,9 +174,8 @@ pool_t(pool_t&& other)
 
 template<class _>
 pool_t<_>::
-pool_t(nsize_t key_size, std::size_t alloc_size)
-    : arena_(alloc_size)
-    , key_size_(key_size)
+pool_t(nsize_t key_size)
+    : key_size_(key_size)
     , map_(compare{key_size})
 {
 }
@@ -189,6 +196,15 @@ pool_t<_>::
 shrink_to_fit()
 {
     arena_.shrink_to_fit();
+}
+
+template<class _>
+void
+pool_t<_>::
+periodic_activity(
+    detail::unique_lock_type& m)
+{
+    arena_.periodic_activity(m);
 }
 
 template<class _>
