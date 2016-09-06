@@ -32,7 +32,7 @@ cryptographic digest of the data is used as the key. The read performance
 and memory usage are independent of the size of the database. These are
 some other features:
 
-[section History]
+[heading History]
 
 The first versions of rippled, the application behind the Ripple consensus
 network, used SQLite as their back end for unstructured data. The
@@ -59,9 +59,8 @@ conclusions:
 only require two IOPs, one to figure out where it is and one to read it in.
 
 NuDB is designed to come as close to this ideal as possible.
-[endsect]
 
-[section Design]
+[heading Design]
 
 NuDB uses three files to hold the data and indexes. The data file is append
 only and contains sufficient information to rebuild the index. The index
@@ -92,19 +91,14 @@ Iteration can be performed on the data file directly. Since it is append
 only, there is no risk of other operations corrupting an iteration in
 progress.
 
-[endsect]
-
-[section Performance]
+[heading Performance]
 
 Writes do not block reads. Read rates are typically around 90% of the SSD's
 IOPS limit. An average fetch for a non-present key typically requires fewer
 than 1.01 IOPs. An average fetch for a present key requires fewer than 1.01
 IOPs plus however many IOPs it takes to read the data.
 
-[endsect]
-
-[section Applications]
-
+[heading Applications]
 
 Content addressable storage associates data with its cryptographic digest.
 This type of storage is commonly used in decentralized blockchain applications.
@@ -123,8 +117,59 @@ database is created.
 
 [endsect]
 
+[section Example]
+
+This complete program creates a database, opens the database, inserts several
+key/value pairs, fetches the key/value pairs, closes the database, then erases
+the database files. Source code for this program is located in the examples
+directory.
+
+```
+#include <nudb/nudb.hpp>
+#include <cstddef>
+#include <cstdint>
+
+int main()
+{
+    using namespace nudb;
+    std::size_t constexpr N = 1000;
+    using key_type = std::uint32_t;
+    error_code ec;
+    auto const dat_path = "db.dat";
+    auto const key_path = "db.key";
+    auto const log_path = "db.log";
+    create<xxhasher>(
+        dat_path, key_path, log_path,
+        1,
+        make_salt(),
+        sizeof(key_type),
+        block_size("."),
+        0.5f,
+        ec);
+    store db;
+    db.open(dat_path, key_path, log_path,
+        16 * 1024 * 1024, ec);
+    char data = 0;
+    // Insert
+    for(key_type i = 0; i < N; ++i)
+        db.insert(&i, &data, sizeof(data), ec);
+    // Fetch
+    for(key_type i = 0; i < N; ++i)
+        db.fetch(&i,
+            [&](void const* buffer, std::size_t size)
+        {
+            // do something with buffer, size
+        }, ec);
+    db.close(ec);
+    erase_file(dat_path);
+    erase_file(key_path);
+    erase_file(log_path);
+}
+```
 
 [endsect]
+
+
 
 [section:types Type Requirements]
 [include types/File.qbk]
