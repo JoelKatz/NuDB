@@ -423,7 +423,7 @@ private:
     load(nbuck_t n, detail::cache& c1,
         detail::cache& c0, void* buf, error_code& ec);
 
-    void
+    std::size_t
     commit(detail::unique_lock_type& m, error_code& ec);
 
     void

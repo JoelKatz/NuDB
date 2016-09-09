@@ -15,7 +15,7 @@
 #include <memory>
 
 #ifndef NUDB_DEBUG_LOG
-#define NUDB_DEBUG_LOG 0
+#define NUDB_DEBUG_LOG 1
 #endif
 #if NUDB_DEBUG_LOG
 #include <beast/unit_test/dstream.hpp>
@@ -326,12 +326,15 @@ insert(
     // Perform insert
     unique_lock_type m{m_};
     s_->p1.insert(h, key, data, size);
-#if 0
+
+#if 1
     auto const now = clock_type::now();
     auto const elapsed = duration_cast<duration<float>>(
         now > s_->when ? now - s_->when : clock_type::duration{1});
+    auto const work = s_->p1.data_size() +
+        s_->kh.block_size * 2 * s_->p1.size();
     auto const rate = static_cast<std::size_t>(
-        std::ceil(s_->p1.data_size() / elapsed.count()));
+        std::ceil(work / elapsed.count()));
     auto const sleep =
         s_->rate && rate > s_->rate;
     m.unlock();
@@ -553,14 +556,14 @@ load(
 }
 
 template<class Hasher, class File>
-void
+std::size_t
 basic_store<Hasher, File>::
 commit(detail::unique_lock_type& m, error_code& ec)
 {
     using namespace detail;
     BOOST_ASSERT(m.owns_lock());
     if(s_->p1.empty())
-        return;
+        return 0;
     swap(s_->p0, s_->p1);
     m.unlock();
     cache c0(s_->kh.key_size, s_->kh.block_size, "c0");
@@ -586,25 +589,27 @@ commit(detail::unique_lock_type& m, error_code& ec)
     lh.block_size = s_->kh.block_size;      // Block Size
     lh.key_file_size = s_->kf.size(ec);     // Key File Size
     if(ec)
-        return;
+        return 0;
     lh.dat_file_size = s_->df.size(ec);     // Data File Size
     if(ec)
-        return;
+        return 0;
     write(s_->lf, lh, ec);
     if(ec)
-        return;
+        return 0;
     // Checkpoint
     s_->lf.sync(ec);
     if(ec)
-        return;
+        return 0;
     // Append data and spills to data file
+    std::size_t work = 0;
     auto modulus = modulus_;
     auto buckets = buckets_;
     {
         // Bulk write to avoid write amplification
         auto const size = s_->df.size(ec);
         if(ec)
-            return;
+            return 0;
+        work += size;
         bulk_writer<File> w{s_->df, size, dataWriteSize_};
         // Write inserted data to the data file
         for(auto& e : s_->p0)
@@ -616,7 +621,7 @@ commit(detail::unique_lock_type& m, error_code& ec)
             auto os = w.prepare(value_size(
                 e.first.size, s_->kh.key_size), ec);
             if(ec)
-                return;
+                return 0;
             // Data Record
             write<uint48_t>(os, e.first.size);          // Size
             write(os, e.first.key, s_->kh.key_size);    // Key
@@ -637,30 +642,30 @@ commit(detail::unique_lock_type& m, error_code& ec)
                 auto const n2 = buckets++;
                 auto b1 = load(n1, c1, c0, buf2.get(), ec);
                 if(ec)
-                    return;
+                    return 0;
                 auto b2 = c1.create(n2);
                 // If split spills, the writer is
                 // flushed which can amplify writes.
                 split(b1, b2, tmp, n1, n2,
                     buckets, modulus, w, ec);
                 if(ec)
-                    return;
+                    return 0;
             }
             // Insert
             auto const n = bucket_index(
                 e.first.hash, buckets, modulus);
             auto b = load(n, c1, c0, buf2.get(), ec);
             if(ec)
-                return;
+                return 0;
             // This can amplify writes if it spills.
             maybe_spill(b, w, ec);
             if(ec)
-                return;
+                return 0;
             b.insert(e.second, e.first.size, e.first.hash);
         }
         w.flush(ec);
         if(ec)
-            return;
+            return 0;
     }
     // Give readers a view of the new buckets.
     // This might be slightly better than the old
@@ -676,8 +681,9 @@ commit(detail::unique_lock_type& m, error_code& ec)
     {
         auto const size = s_->lf.size(ec);
         if(ec)
-            return;
+            return 0;
         bulk_writer<File> w{s_->lf, size, logWriteSize_};
+        work += 2 * c0.size() * s_->kh.block_size;
         for(auto const e : c0)
         {
             // Log Record
@@ -685,7 +691,7 @@ commit(detail::unique_lock_type& m, error_code& ec)
                 field<std::uint64_t>::size +    // Index
                 e.second.actual_size(), ec);    // Bucket
             if(ec)
-                return;
+                return 0;
             // Log Record
             write<std::uint64_t>(os, e.first);  // Index
             e.second.write(os);                 // Bucket
@@ -693,10 +699,10 @@ commit(detail::unique_lock_type& m, error_code& ec)
         c0.clear();
         w.flush(ec);
         if(ec)
-            return;
+            return 0;
         s_->lf.sync(ec);
         if(ec)
-            return;
+            return 0;
     }
     g_.finish();
     // Write new buckets to key file
@@ -705,26 +711,27 @@ commit(detail::unique_lock_type& m, error_code& ec)
         e.second.write(s_->kf,
            (e.first + 1) * s_->kh.block_size, ec);
         if(ec)
-            return;
+            return 0;
     }
     // Finalize the commit
     s_->df.sync(ec);
     if(ec)
-        return;
+        return 0;
     s_->kf.sync(ec);
     if(ec)
-        return;
+        return 0;
     s_->lf.trunc(0, ec);
     if(ec)
-        return;
+        return 0;
     s_->lf.sync(ec);
     if(ec)
-        return;
+        return 0;
     // Cache is no longer needed, all fetches will go straight
     // to disk again. Do this after the sync, otherwise readers
     // might get blocked longer due to the extra I/O.
     m.lock();
     s_->c1.clear();
+    return work;
 }
 
 template<class Hasher, class File>
@@ -743,10 +750,7 @@ run()
         unique_lock_type m{m_};
         if(! s_->p1.empty())
         {
-            auto const work =
-                s_->p1.data_size() +
-                2 * s_->c1.size() * s_->kh.block_size;
-            commit(m, ec_);
+            auto const work = commit(m, ec_);
             if(ec_)
             {
                 ecb_.store(true);

@@ -17,6 +17,7 @@
 #include <memory>
 
 #if NUDB_DEBUG_LOG
+#include <iostream>
 #include <beast/unit_test/dstream.hpp>
 #endif
 
